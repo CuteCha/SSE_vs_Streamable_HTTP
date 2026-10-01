@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SSE 实时推送 · 页面自动刷新演示</title>
+  <style>
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #0f1117;
+      color: #e6e9ef;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #1a1e2a;
+      border: 1px solid #2b3040;
+      border-radius: 16px;
+      padding: 40px 48px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+      min-width: 420px;
+    }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    .status {
+      font-size: 13px; color: #8b93a7; margin-bottom: 26px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #f5c542; }
+    .dot.on { background: #35d07f; box-shadow: 0 0 8px #35d07f; }
+    .dot.off { background: #e5534b; }
+    #sse {
+      font-size: 26px; font-weight: 700; letter-spacing: 1px;
+      font-variant-numeric: tabular-nums;
+      color: #f5c542;
+      min-height: 36px;
+    }
+    .msg { font-size: 14px; color: #9aa2b5; margin-top: 12px; }
+    .count { font-size: 12px; color: #6b7385; margin-top: 6px; }
+    code { color: #7fb2ff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SSE 实时推送 · 页面自动刷新</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="state">连接中…</span></div>
+    <div id="sse">--:--:--</div>
+    <div class="msg">数据由服务器每秒推送，页面无需刷新自动更新</div>
+    <div class="count">已接收推送：<span id="count">0</span> 条</div>
+    <div class="count" style="margin-top:14px">也可用 <code>curl -N http://localhost:8080/sse</code> 观察原始流</div>
+  </div>
+
+  <script>
+    // 通过 EventSource 订阅 /sse，浏览器会自动保持长连接并接收服务器推送
+    const es = new EventSource('/sse');
+    const sseEl = document.getElementById('sse');
+    const dot = document.getElementById('dot');
+    const stateEl = document.getElementById('state');
+    const countEl = document.getElementById('count');
+    let count = 0;
+
+    es.onopen = () => {
+      dot.classList.remove('off');
+      dot.classList.add('on');
+      stateEl.textContent = '已连接，正在接收推送';
+    };
+
+    es.onmessage = (event) => {
+      // 服务器推送形如 "Fri Nov 04 21:40:46 CST 2022"
+      sseEl.textContent = event.data;
+      countEl.textContent = ++count;
+    };
+
+    es.onerror = () => {
+      // 连接断开时 EventSource 会自动重连，这里仅更新状态提示
+      dot.classList.remove('on');
+      dot.classList.add('off');
+      stateEl.textContent = '连接中断，自动重连中…';
+    };
+  </script>
+</body>
+</html>

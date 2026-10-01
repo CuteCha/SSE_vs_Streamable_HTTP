@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SSE 实时推送 · 页面自动刷新演示</title>
+  <style>
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #0f1117;
+      color: #e6e9ef;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #1a1e2a;
+      border: 1px solid #2b3040;
+      border-radius: 16px;
+      padding: 40px 48px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+      min-width: 380px;
+    }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    .status {
+      font-size: 13px; color: #8b93a7; margin-bottom: 26px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #f5c542; }
+    .dot.on { background: #35d07f; box-shadow: 0 0 8px #35d07f; }
+    .time {
+      font-size: 52px; font-weight: 700; letter-spacing: 2px;
+      font-variant-numeric: tabular-nums;
+      color: #f5c542;
+    }
+    .msg { font-size: 14px; color: #9aa2b5; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SSE 实时推送 · 页面自动刷新</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="state">连接中…</span></div>
+    <div class="time" id="time">--:--:--</div>
+    <div class="msg">数据由服务器每秒推送，页面无需刷新自动更新</div>
+  </div>
+
+  <script>
+    // 通过 EventSource 订阅 /stream，浏览器会自动保持长连接并接收服务器推送
+    const es = new EventSource('/stream');
+    const timeEl = document.getElementById('time');
+    const dot = document.getElementById('dot');
+    const stateEl = document.getElementById('state');
+
+    es.onopen = () => {
+      dot.classList.add('on');
+      stateEl.textContent = '已连接，正在接收推送';
+    };
+
+    es.onmessage = (event) => {
+      // 服务器推送形如 "data: 当前时间是 00:33:12"
+      timeEl.textContent = event.data.replace('当前时间是 ', '');
+    };
+
+    es.onerror = () => {
+      // 连接断开时 EventSource 会自动重连，这里仅更新状态提示
+      dot.classList.remove('on');
+      stateEl.textContent = '连接中断，自动重连中…';
+    };
+  </script>
+</body>
+</html>

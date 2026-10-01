@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SSE retry 自动重连演示</title>
+  <style>
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #0f1117;
+      color: #e6e9ef;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding: 32px 16px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #1a1e2a;
+      border: 1px solid #2b3040;
+      border-radius: 16px;
+      padding: 32px 40px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+      width: 100%;
+      max-width: 720px;
+    }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    .sub { font-size: 13px; color: #8b93a7; line-height: 1.7; margin-bottom: 22px; }
+    .status {
+      font-size: 13px; color: #8b93a7; margin-bottom: 18px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #f5c542; }
+    .dot.on { background: #35d07f; box-shadow: 0 0 8px #35d07f; }
+    .dot.off { background: #e5534b; }
+    .stats {
+      display: flex; gap: 28px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .stat .k { font-size: 12px; color: #6b7385; }
+    .stat .v { font-size: 22px; font-weight: 700; color: #f5c542; font-variant-numeric: tabular-nums; }
+    .btns { display: flex; gap: 10px; margin-bottom: 18px; }
+    button {
+      background: #2b3040; color: #e6e9ef; border: 1px solid #3a4155;
+      border-radius: 8px; padding: 7px 16px; font-size: 13px; cursor: pointer;
+    }
+    button:hover { background: #343c52; }
+    .log {
+      background: #12151d; border: 1px solid #2b3040; border-radius: 10px;
+      padding: 12px 14px; height: 260px; overflow-y: auto;
+      font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.8;
+    }
+    .log div { color: #9aa2b5; }
+    .log .in { color: #35d07f; }
+    .log .open { color: #7fb2ff; }
+    .log .err { color: #e5534b; }
+    .log .info { color: #6b7385; }
+    .back { margin-top: 18px; font-size: 13px; }
+    .back a { color: #7fb2ff; text-decoration: none; }
+    code { color: #7fb2ff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SSE retry 自动重连演示</h1>
+    <div class="sub">
+      本页订阅 <code>GET /sse-retry</code>：服务端<strong>只推送一条</strong>消息就结束响应，
+      并在首行下发 <code>retry: 2000</code>。浏览器 <code>EventSource</code> 检测到连接断开后，
+      会按该间隔<strong>每 2 秒自动重连一次</strong>，因此页面会持续不断地收到新的时间。<br>
+      对比：<a href="/index.html" style="color:#7fb2ff">/index.html</a> 订阅的 <code>/sse</code>
+      是一条长连接持续推送，从不主动断开。
+    </div>
+
+    <div class="status"><span class="dot" id="dot"></span><span id="state">未连接</span></div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">重连次数（open）</div><div class="v" id="openCount">0</div></div>
+      <div class="stat"><div class="k">收到消息数</div><div class="v" id="msgCount">0</div></div>
+      <div class="stat"><div class="k">最近一次推送</div><div class="v" id="lastData" style="font-size:16px">--</div></div>
+    </div>
+
+    <div class="btns">
+      <button id="btnStart">开始订阅</button>
+      <button id="btnStop">停止订阅</button>
+      <button id="btnClear">清空日志</button>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <div class="back"><a href="/index.html">← 返回 /index.html（持续推送版）</a></div>
+  </div>
+
+  <script>
+    const dot = document.getElementById('dot');
+    const stateEl = document.getElementById('state');
+    const logEl = document.getElementById('log');
+    const openCountEl = document.getElementById('openCount');
+    const msgCountEl = document.getElementById('msgCount');
+    const lastDataEl = document.getElementById('lastData');
+
+    let es = null;
+    let openCount = 0;
+    let msgCount = 0;
+
+    function now() {
+      const d = new Date();
+      const p = (n, w = 2) => String(n).padStart(w, '0');
+      return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+    }
+
+    function log(text, cls) {
+      const line = document.createElement('div');
+      line.className = cls || 'info';
+      line.textContent = `[${now()}] ${text}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setConnected(on) {
+      dot.classList.toggle('on', on);
+      dot.classList.toggle('off', !on);
+      stateEl.textContent = on ? '已连接' : '连接已断开，等待自动重连（2s）';
+    }
+
+    function start() {
+      if (es) {
+        log('已在订阅中', 'info');
+        return;
+      }
+      es = new EventSource('/sse-retry');
+
+      es.onopen = () => {
+        openCount++;
+        openCountEl.textContent = openCount;
+        setConnected(true);
+        log(`第 ${openCount} 次连接建立（onopen）`, 'open');
+      };
+
+      es.onmessage = (event) => {
+        msgCount++;
+        msgCountEl.textContent = msgCount;
+        lastDataEl.textContent = event.data;
+        log(`收到推送：${event.data}`, 'in');
+      };
+
+      es.onerror = () => {
+        // 服务端推送一条后关闭连接，readyState=CLOSED 时浏览器等待 retry 间隔后重连
+        setConnected(false);
+        const reason = es && es.readyState === EventSource.CLOSED
+          ? '连接被服务端关闭（CLOSED），将不再自动重连'
+          : '连接中断（CONNECTING），2 秒后自动重连';
+        log(`onerror：${reason}`, 'err');
+      };
+      log('开始订阅 /sse-retry', 'info');
+    }
+
+    function stop() {
+      if (!es) {
+        log('当前没有订阅', 'info');
+        return;
+      }
+      es.close();
+      es = null;
+      setConnected(false);
+      log('已调用 EventSource.close()，停止订阅', 'err');
+    }
+
+    document.getElementById('btnStart').onclick = start;
+    document.getElementById('btnStop').onclick = stop;
+    document.getElementById('btnClear').onclick = () => { logEl.innerHTML = ''; };
+
+    start();
+  </script>
+</body>
+</html>
